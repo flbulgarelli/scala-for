@@ -6,12 +6,8 @@ sealed trait Validated[+A] {
   def map[B](f: A => B): Validated[B] = Validated.pure(f)(this)
 
   def flatMap[B](f: A => Validated[B]): Validated[B] =  this match {
-    case i@Invalid(m1) =>
-
-  , i@Invalid(m2)) => Invalid(s"$m1, $m2")
-    case (i@Invalid(_), _) => i
-    case (Valid(v1), Valid(v2)) => if (v1 == v2) Valid(v1) else Invalid(s"$v2 is not equal to $v1")
-    case (_, i@Invalid(_)) => i
+    case Valid(v) => f(v)
+    case i@Invalid(m1) => i
   }
 }
 
@@ -23,12 +19,8 @@ object Validated {
   def pure3[A, B, C, D](f: (A, B, C) => D): Validated[A => B => C => D] = pure(f.curried)
 
   implicit class ValidatedFunction[A, B](self: Validated[A => B]) {
-    def apply(other: Validated[A]) = (self, other) match {
-      case (Valid(f), Valid(v)) => Valid(f(v))
-      case (Invalid(m1), Invalid(m2)) => Invalid(s"$m1, $m2")
-      case (i@Invalid(_), _) => i
-      case (_, i@Invalid(_)) => i
-    }
+    def apply(other: Validated[A]) =
+      other.flatMap {  o =>  self.flatMap { f => pure(f(o)) } }
   }
 }
 
@@ -74,7 +66,7 @@ class ValidatedSpec extends FunSpec {
     }
 
     it("combines messages of both iff both are invalid are invalid") {
-      assert((Invalid("ups")(Invalid("ouch"))) === Invalid("ups, ouch"))
+      assert((Invalid("ups")(Invalid("ouch"))) === Invalid("ouch"))
     }
   }
 }
@@ -98,19 +90,17 @@ class ValidatedSamples extends FunSuite {
   }
 
   def validateEqual(validated: Validated[Int], other: Validated[Int]) =
-    (validated, other) match {
-      case (Invalid(m1), i@Invalid(m2)) => Invalid(s"$m1, $m2")
-      case (i@Invalid(_), _) => i
-      case (Valid(v1), Valid(v2)) => if (v1 == v2) Valid(v1) else Invalid(s"$v2 is not equal to $v1")
-      case (_, i@Invalid(_)) => i
-    }
+    for {
+      v1 <- validated
+      v2 <- other
+      r <- if (v1 == v2) pure(v1) else Invalid(s"$v2 is not equal to $v1")
+    } yield r
 
   test("validateEqual") {
     assert(validateEqual(Valid(2), Valid(2)) === Valid(2))
     assert(validateEqual(Valid(2), Valid(3)) === Invalid("3 is not equal to 2"))
     assert(validateEqual(Invalid("ups"), Valid(2)) === Invalid("ups"))
     assert(validateEqual(Valid(3), Invalid("ouch")) === Invalid("ouch"))
-    assert(validateEqual(Invalid("ups"), Invalid("ouch")) === Invalid("ups, ouch"))
+    assert(validateEqual(Invalid("ups"), Invalid("ouch")) === Invalid("ups"))
   }
-
 }
